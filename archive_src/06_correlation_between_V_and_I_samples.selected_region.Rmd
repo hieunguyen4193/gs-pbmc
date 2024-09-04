@@ -1,0 +1,306 @@
+---
+title: "Correlation between Vazym and IDT samples at different spike-in ratios, min.cov = `r params$min.cov`"
+author:
+  - "hieunguyen@genesolutions.vn"
+date: "Last update on `r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document:
+    keep_md: no
+    df_print: paged
+    toc: true
+    toc_float:
+      toc_collapsed: false
+    toc_depth: 3
+    number_sections: true
+    theme: lumen
+params:
+  min.cov: NA
+---
+
+
+```{css zoom-lib-src, echo = FALSE}
+script src = "https://ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js"
+```
+
+```{js zoom-jquery, echo = FALSE}
+ $(document).ready(function() {
+    $('body').prepend('<div class=\"zoomDiv\"><img src=\"\" class=\"zoomImg\"></div>');
+    // onClick function for all plots (img's)
+    $('img:not(.zoomImg)').click(function() {
+      $('.zoomImg').attr('src', $(this).attr('src')).css({width: '100%'});
+      $('.zoomDiv').css({opacity: '1', width: 'auto', border: '1px solid white', borderRadius: '5px', position: 'fixed', top: '50%', left: '50%', marginRight: '-50%', transform: 'translate(-50%, -50%)', boxShadow: '0px 0px 50px #888888', zIndex: '50', overflow: 'auto', maxHeight: '100%'});
+    });
+    // onClick function for zoomImg
+    $('img.zoomImg').click(function() {
+      $('.zoomDiv').css({opacity: '0', width: '0%'}); 
+    });
+  });
+```
+
+<style type="text/css">
+    div.datatables { height: auto !important;}
+</style>
+
+
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='hide', fig.width=14, fig.height=10}
+# gc()
+# rm(list = ls())
+
+# min.cov <- 5
+min.cov <- params$min.cov
+analysis.version <- "0.1"
+sample.type <- "all"
+
+library(ggpubr)
+path.to.main.src <- "/home/hieunguyen/PBMC_methylKit/src_v2"
+source(file.path(path.to.main.src, "import_libraries.R"))
+source(file.path(path.to.main.src, "helper_functions.R"))
+source(file.path(path.to.main.src, "configs.R"))
+
+min.cov.bases <- configs[[analysis.version]]$min.cov.bases
+qvalue.cutoff <- configs[[analysis.version]]$qvalue.cutoff
+methdiff.cutoff <- configs[[analysis.version]]$methdiff.cutoff
+log2FC.cutoff <- configs[[analysis.version]]$log2FC.cutoff
+up.flank <- configs[[analysis.version]]$up.flank
+down.flank <- configs[[analysis.version]]$down.flank
+
+maindir <- "/home/hieunguyen/PBMC_methylKit"
+path.to.input <- file.path(maindir, "input_5x")
+path.to.main.output <- file.path(maindir, "output_v2")
+
+path.to.06.output <- file.path(path.to.main.output, sprintf("06_output_%s", analysis.version), sprintf("minCov_%s_sampleType_%s", min.cov, sample.type))
+dir.create(path.to.06.output, showWarnings = FALSE, recursive = TRUE)
+
+original.all.cov.files <- Sys.glob(file.path(path.to.input, sprintf("filtered_%sreads_cov", min.cov), "*.cov"))
+names(original.all.cov.files) <- unlist(lapply(original.all.cov.files, function(x){
+  x <- basename(x)
+  x <- str_replace(x, ".deduplicated.bedGraph.gz.bismark.zero.filtered.cov", "")
+  # x <- str_split(x, "-")[[1]][[2]]
+  # x <- str_split(x, "_")[[1]][[1]]
+  return(x)
+}))
+
+meta.data <- data.frame(filename = names(original.all.cov.files))
+meta.data <- meta.data %>% rowwise() %>%
+  mutate(Sample.type = ifelse(grepl("BCI", filename) == TRUE, "I", "V")) %>%
+  mutate(spike.in.Label = str_split(filename, "_")[[1]][[1]]) %>%
+  mutate(spike.in.Label = str_split(spike.in.Label, "-")[[1]][[2]]) %>%
+  mutate(spike.in.Label = str_replace(spike.in.Label, "BCI", "")) %>%
+  mutate(spike.in.Label = str_replace(spike.in.Label, "BCV", "")) %>%
+  mutate(spike.in.Label = str_split(spike.in.Label, "R")[[1]][[1]])
+
+original.metadata <- meta.data
+```
+
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis',fig.keep='all', fig.width=14, fig.height=10}
+# cpg.island <- read.csv("/home/hieunguyen/PBMC_methylKit/CpG_island.hg19.txt", sep = "\t") %>% 
+#   subset(select = -c(X.bin)) %>%
+#   rowwise() %>%
+#   mutate(chr = str_replace(chrom, "chr", "")) %>%
+#   subset(chr %in% seq(1, 22))
+# 
+# cpg.island.grange <- makeGRangesFromDataFrame(df = cpg.island, seqnames.field = "chr", start.field = "chromStart", end.field = "chromEnd", keep.extra.columns = TRUE)
+
+selected.region <- data.frame(chrom = c(9), start = c(4715), end = c(4982))
+cpg.island.grange <- makeGRangesFromDataFrame(selected.region, seqnames.field = "chrom",
+                                              start.field = "start", end.field = "end")
+```
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='hide', fig.width=14, fig.height=10}
+meth <- hash()
+mat <- hash()
+mat.pivot <- hash()
+
+for (chosen.spike.in.label in unique(original.metadata$spike.in.Label)){
+  meta.data <- subset(original.metadata, original.metadata$spike.in.Label %in% c(chosen.spike.in.label))
+  meta.data <- meta.data %>% rowwise() %>%
+    mutate(Label = ifelse(Sample.type == "I", 1, 0))
+  all.cov.files <- original.all.cov.files[meta.data$filename]
+  labels <- meta.data$Label
+  
+  DML.obj <- readBismarkCoverage( all.cov.files,
+                       sample.id = names(all.cov.files),
+                       assembly = "hg19",
+                       treatment = labels,
+                       context = "CpG",
+                       min.cov = min.cov)
+  for (i in seq(1, length(DML.obj))){
+    DML.obj[[i]] <- selectByOverlap(DML.obj[[i]], cpg.island.grange)
+  }
+  meth[[chosen.spike.in.label]] <- methylKit::unite(object = DML.obj, destrand = FALSE) 
+  mat[[chosen.spike.in.label]] <- percMethylation(meth[[chosen.spike.in.label]], rowids = TRUE)  %>% as.data.frame() %>% rownames_to_column("locus")
+  mat.pivot[[chosen.spike.in.label]] <- mat[[chosen.spike.in.label]] %>% pivot_longer(!locus, names_to = "sample", values_to = "meth_density")
+  mat.pivot[[chosen.spike.in.label]] <- merge(mat.pivot[[chosen.spike.in.label]], meta.data, by.x = "sample", by.y = "filename", all.x = TRUE)
+}
+
+```
+
+# Correlation plot between sample I and sample V at the same spike-in ratio {.tabset}
+
+## Spike-in ratio 0.1
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='hide',fig.keep='all', fig.width=14, fig.height=10, }
+chosen.spike.in.label <- "0.1"
+a <- getCorrelation(meth[[chosen.spike.in.label]], plot = TRUE)
+```
+
+## Spike-in ratio 1
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='hide',fig.keep='all', fig.width=14, fig.height=10, }
+chosen.spike.in.label <- "01"
+a <- getCorrelation(meth[[chosen.spike.in.label]], plot = TRUE)
+```
+
+## Spike-in ratio 5
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='hide',fig.keep='all', fig.width=14, fig.height=10, }
+chosen.spike.in.label <- "05"
+a <- getCorrelation(meth[[chosen.spike.in.label]], plot = TRUE)
+```
+
+## Spike-in ratio 10
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='hide',fig.keep='all', fig.width=14, fig.height=10, }
+chosen.spike.in.label <- "10"
+a <- getCorrelation(meth[[chosen.spike.in.label]], plot = TRUE)
+```
+
+## Spike-in ratio 100
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='hide',fig.keep='all', fig.width=14, fig.height=10, }
+chosen.spike.in.label <- "100"
+a <- getCorrelation(meth[[chosen.spike.in.label]], plot = TRUE)
+```
+
+# Boxplot: Comparison of I samples and V samples at same spike-in ratios {.tabset}
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis',fig.keep='all', fig.width=14, fig.height=10, }
+for (group in names(mat)){
+  cat(sprintf("## Spike-in ratio: %s \n", group))
+  p <- mat.pivot[[group]] %>% ggplot(aes(x = Sample.type, y = meth_density, fill = Sample.type)) + 
+  geom_boxplot() + stat_compare_means(method = "t.test", comparisons = list(c("I", "V"))) +
+  theme_pubr(base_size = 25) + ggtitle(sprintf("I samples and V samples at spike-in ratio %s", group))
+  print(p)
+  cat("\n \n")
+}
+
+
+
+```
+
+# Correlation between different spike-in ratios and MEAN methylation density in I samples
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis',fig.keep='all', fig.width=14, fig.height=10}
+tmp.mat <- data.frame()
+for (group in names(mat.pivot)){
+  tmp.mat <- rbind(tmp.mat, subset(mat.pivot[[group]], mat.pivot[[group]]$Sample.type == "I"))
+}
+```
+
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis',fig.keep='all', fig.width=14, fig.height=10}
+tmp.mat %>% ggplot(aes(x = spike.in.Label, y = meth_density)) + geom_boxplot()
+```
+
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis',fig.keep='all', fig.width=14, fig.height=10}
+convert.ratio <- list(`0` = 0, 
+                      `0.1` = 0.1,
+                      `01` = 1,
+                      `05` = 5,
+                      `10` = 10,
+                      `100` = 100)
+mean.table <- tmp.mat %>% group_by(spike.in.Label) %>%  summarise_at(vars(meth_density), list(name = mean)) %>%
+  rowwise() %>%
+  mutate(spike.in.ratio = convert.ratio[[spike.in.Label]])
+
+mean.table %>%
+  ggplot(aes(x = log2(spike.in.ratio), y = name)) + geom_point() +  geom_smooth() + 
+  scale_x_continuous(breaks = log2(sort(mean.table$spike.in.ratio)), labels = mean.table$spike.in.ratio) +
+  stat_cor(method = "pearson", p.accuracy = 0.001, r.accuracy = 0.01, size = 14) + theme_pubr(base_size = 25)
+  
+  
+
+```
+
+
+# Correlation between different spike-in ratios and MEAN methylation density in V samples
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis',fig.keep='all', fig.width=14, fig.height=10}
+tmp.mat <- data.frame()
+for (group in names(mat.pivot)){
+  tmp.mat <- rbind(tmp.mat, subset(mat.pivot[[group]], mat.pivot[[group]]$Sample.type == "V"))
+}
+```
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis',fig.keep='all', fig.width=14, fig.height=10}
+tmp.mat %>% ggplot(aes(x = spike.in.Label, y = meth_density)) + geom_boxplot()
+```
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis',fig.keep='all', fig.width=14, fig.height=10}
+mean.table <- tmp.mat %>% group_by(spike.in.Label) %>%  summarise_at(vars(meth_density), list(name = mean)) %>%
+  rowwise() %>%
+  mutate(spike.in.ratio = convert.ratio[[spike.in.Label]])
+
+mean.table %>%
+  ggplot(aes(x = log2(spike.in.ratio), y = name)) + geom_point() +  geom_smooth() + 
+  scale_x_continuous(breaks = log2(sort(mean.table$spike.in.ratio)), labels = mean.table$spike.in.ratio) +
+  stat_cor(method = "pearson", p.accuracy = 0.001, r.accuracy = 0.01, size = 14)+ theme_pubr(base_size = 25)
+  
+  
+
+```
+
+# Correlation between different spike-in ratios and median methylation density in I samples
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis',fig.keep='all', fig.width=14, fig.height=10}
+tmp.mat <- data.frame()
+for (group in names(mat.pivot)){
+  tmp.mat <- rbind(tmp.mat, subset(mat.pivot[[group]], mat.pivot[[group]]$Sample.type == "I"))
+}
+```
+
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis',fig.keep='all', fig.width=14, fig.height=10}
+tmp.mat %>% ggplot(aes(x = spike.in.Label, y = meth_density)) + geom_boxplot()
+```
+
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis',fig.keep='all', fig.width=14, fig.height=10}
+convert.ratio <- list(`0` = 0, 
+                      `0.1` = 0.1,
+                      `01` = 1,
+                      `05` = 5,
+                      `10` = 10,
+                      `100` = 100)
+median.table <- tmp.mat %>% group_by(spike.in.Label) %>%  summarise_at(vars(meth_density), list(name = median)) %>%
+  rowwise() %>%
+  mutate(spike.in.ratio = convert.ratio[[spike.in.Label]])
+
+median.table %>%
+  ggplot(aes(x = log2(spike.in.ratio), y = name)) + geom_point() +  geom_smooth() + 
+  scale_x_continuous(breaks = log2(sort(median.table$spike.in.ratio)), labels = median.table$spike.in.ratio) +
+  stat_cor(method = "pearson", p.accuracy = 0.001, r.accuracy = 0.01, size = 14) + theme_pubr(base_size = 25)
+
+
+
+```
+
+
+# Correlation between different spike-in ratios and median methylation density in V samples
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis',fig.keep='all', fig.width=14, fig.height=10}
+tmp.mat <- data.frame()
+for (group in names(mat.pivot)){
+  tmp.mat <- rbind(tmp.mat, subset(mat.pivot[[group]], mat.pivot[[group]]$Sample.type == "V"))
+}
+```
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis',fig.keep='all', fig.width=14, fig.height=10}
+tmp.mat %>% ggplot(aes(x = spike.in.Label, y = meth_density)) + geom_boxplot()
+```
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis',fig.keep='all', fig.width=14, fig.height=10}
+median.table <- tmp.mat %>% group_by(spike.in.Label) %>%  summarise_at(vars(meth_density), list(name = median)) %>%
+  rowwise() %>%
+  mutate(spike.in.ratio = convert.ratio[[spike.in.Label]])
+
+median.table %>%
+  ggplot(aes(x = log2(spike.in.ratio), y = name)) + geom_point() +  geom_smooth() + 
+  scale_x_continuous(breaks = log2(sort(median.table$spike.in.ratio)), labels = median.table$spike.in.ratio) +
+  stat_cor(method = "pearson", p.accuracy = 0.001, r.accuracy = 0.01, size = 14)+ theme_pubr(base_size = 25)
+```
+

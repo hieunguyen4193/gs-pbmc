@@ -1,0 +1,492 @@
+---
+title: "Analysis spike-in data, comparison `r params$group0` (as reference) vs `r params$group1`"
+author:
+  - "hieunguyen@genesolutions.vn"
+date: "Last update on `r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document:
+    keep_md: no
+    df_print: paged
+    toc: true
+    toc_float:
+      toc_collapsed: false
+    toc_depth: 3
+    number_sections: true
+    theme: lumen
+params:
+  sample.type: NA
+  min.cov: NA
+  group0: NA
+  group1: NA
+  analysis.version: NA
+---
+
+
+```{css zoom-lib-src, echo = FALSE}
+script src = "https://ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js"
+```
+
+```{js zoom-jquery, echo = FALSE}
+ $(document).ready(function() {
+    $('body').prepend('<div class=\"zoomDiv\"><img src=\"\" class=\"zoomImg\"></div>');
+    // onClick function for all plots (img's)
+    $('img:not(.zoomImg)').click(function() {
+      $('.zoomImg').attr('src', $(this).attr('src')).css({width: '100%'});
+      $('.zoomDiv').css({opacity: '1', width: 'auto', border: '1px solid white', borderRadius: '5px', position: 'fixed', top: '50%', left: '50%', marginRight: '-50%', transform: 'translate(-50%, -50%)', boxShadow: '0px 0px 50px #888888', zIndex: '50', overflow: 'auto', maxHeight: '100%'});
+    });
+    // onClick function for zoomImg
+    $('img.zoomImg').click(function() {
+      $('.zoomDiv').css({opacity: '0', width: '0%'}); 
+    });
+  });
+```
+
+<style type="text/css">
+    div.datatables { height: auto !important;}
+</style>
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='hide', fig.width=14, fig.height=10}
+# gc()
+# rm(list = ls())
+
+min.cov <- params$min.cov
+sample.type <- params$sample.type
+analysis.version <- params$analysis.version
+group0 <- params$group0
+group1 <- params$group1
+
+# min.cov <- 3
+# sample.type <- "V"
+# analysis.version <- "0.1"
+# group0 <- "0.1"
+# group1 <- "1"
+
+path.to.main.src <- "/home/hieunguyen/PBMC_methylKit/src_v2"
+source(file.path(path.to.main.src, "import_libraries.R"))
+source(file.path(path.to.main.src, "helper_functions.R"))
+source(file.path(path.to.main.src, "configs.R"))
+
+min.cov.bases <- configs[[analysis.version]]$min.cov.bases
+qvalue.cutoff <- configs[[analysis.version]]$qvalue.cutoff
+methdiff.cutoff <- configs[[analysis.version]]$methdiff.cutoff
+log2FC.cutoff <- configs[[analysis.version]]$log2FC.cutoff
+up.flank <- configs[[analysis.version]]$up.flank
+down.flank <- configs[[analysis.version]]$down.flank
+
+##### Preprocess .cov file: remove CpG positions that have less than 5 reads, 10 reads.
+#> awk -F'\t' '$5 + $6 >= 5' test.cov > test.filtered.cov
+#> for file in $files;do filename=${file%.cov*} && \
+#> echo -e "working on sample " $filename "\n" && \
+#> awk -F'\t' '$5 + $6 >= 5' ./cov/${filename}.cov > filtered_5reads_cov/${filename}.filtered.cov;done
+
+maindir <- "/home/hieunguyen/PBMC_methylKit"
+path.to.input <- file.path(maindir, "input_5x")
+path.to.main.output <- file.path(maindir, "output_v2")
+path.to.02.output <- file.path(path.to.main.output, sprintf("02_output_%s", analysis.version), sprintf("minCov_%s_sampleType_%s", min.cov, sample.type), sprintf("group_%s_vs_%s", group0, group1))
+dir.create(path.to.02.output, showWarnings = FALSE, recursive = TRUE)
+all.cov.files <- Sys.glob(file.path(path.to.input, sprintf("filtered_%sreads_cov", min.cov), "*.cov"))
+names(all.cov.files) <- unlist(lapply(all.cov.files, function(x){
+  x <- basename(x)
+  x <- str_replace(x, ".deduplicated.bedGraph.gz.bismark.zero.filtered.cov", "")
+  # x <- str_split(x, "-")[[1]][[2]]
+  # x <- str_split(x, "_")[[1]][[1]]
+  return(x)
+}))
+
+meta.data <- data.frame(filename = names(all.cov.files))
+meta.data <- meta.data %>% rowwise() %>%
+  mutate(Sample.type = ifelse(grepl("BCI", filename) == TRUE, "I", "V")) %>%
+  mutate(spike.in.Label = str_split(filename, "_")[[1]][[1]]) %>%
+  mutate(spike.in.Label = str_split(spike.in.Label, "-")[[1]][[2]]) %>%
+  mutate(spike.in.Label = str_replace(spike.in.Label, "BCI", "")) %>%
+  mutate(spike.in.Label = str_replace(spike.in.Label, "BCV", "")) %>%
+  mutate(spike.in.Label = str_split(spike.in.Label, "R")[[1]][[1]])
+```
+
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='hide', fig.width=14, fig.height=10}
+if (sample.type == "I"){
+  meta.data <- subset(meta.data, meta.data$Sample.type == "I")
+  all.cov.files <- all.cov.files[meta.data$filename]
+} else if (sample.type == "V"){
+  meta.data <- subset(meta.data, meta.data$Sample.type == "V")
+  all.cov.files <- all.cov.files[meta.data$filename]
+}
+
+meta.data <- subset(meta.data, meta.data$spike.in.Label %in% c(group0, group1))
+meta.data <- meta.data %>% rowwise() %>%
+  mutate(Label = ifelse(spike.in.Label == group0, 0, 1))
+
+all.cov.files <- all.cov.files[meta.data$filename]
+labels <- meta.data$Label
+```
+
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='hide', fig.width=14, fig.height=10}
+# devtools::source_gist("4839e615e2401d73fe51")
+
+DML.obj <- readBismarkCoverage( all.cov.files,
+                     sample.id = names(all.cov.files),
+                     assembly = "hg19",
+                     treatment = labels,
+                     context = "CpG",
+                     min.cov = min.cov)
+
+saveRDS(DML.obj, file.path(path.to.02.output, "DML_obj.rds"))
+```
+
+```{r echo=TRUE, warning=FALSE, message=FALSE, results='asis', fig.width=14, fig.height=10}
+print(sprintf("Min coverage of CpGs used in this analysis: %s", min.cov))
+```
+
+
+```{r echo=TRUE, warning=FALSE, message=FALSE, results='asis', fig.width=14, fig.height=10}
+print(sprintf("Min number of CpGs in a region to be considered in this analysis: %s", min.cov.bases))
+```
+
+
+```{r echo=TRUE, warning=FALSE, message=FALSE, results='asis', fig.width=14, fig.height=10}
+print(sprintf("q-value (adjusted p-value) cut-off = %s", qvalue.cutoff))
+```
+
+```{r echo=TRUE, warning=FALSE, message=FALSE, results='asis', fig.width=14, fig.height=10}
+print(sprintf("meth.diff cut-off = %s", methdiff.cutoff))
+```
+
+```{r echo=TRUE, warning=FALSE, message=FALSE, results='asis', fig.width=14, fig.height=10}
+print(sprintf("Up.stream from TSS = %s", up.flank))
+```
+
+```{r echo=TRUE, warning=FALSE, message=FALSE, results='asis', fig.width=14, fig.height=10}
+print(sprintf("Down.stream from TSS = %s", down.flank))
+```
+
+# Metadata
+
+**We calculate methylation difference as the difference of (group: 1) - control (group: 0)**
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis', fig.width=14, fig.height=10}
+meta.data %>% create_dt()
+```
+
+# Descriptive statistics on each sample 
+## Histogram of % CpG methylation {.tabset}
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='hide', fig.width=14, fig.height=10}
+for (i in seq(length(all.cov.files))){
+  cat(sprintf("### %s \n", names(all.cov.files)[[i]]))
+  getMethylationStats(DML.obj[[i]], plot=TRUE, both.strands=FALSE)  
+  cat("\n \n")
+}
+
+```
+
+## Histogram of CpG coverage {.tabset}
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='hide', fig.width=14, fig.height=10}
+for (i in seq(length(all.cov.files))){
+  cat(sprintf("### %s \n", names(all.cov.files)[[i]]))
+  getCoverageStats(DML.obj[[i]], plot=TRUE, both.strands=FALSE)  
+  cat("\n \n")
+}
+
+```
+
+# Some preliminary analysis
+
+## Examine sample correlation
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis', fig.width=14, fig.height=10}
+meth <- methylKit::unite(object = DML.obj, destrand = FALSE)
+```
+
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='hide',fig.keep='all', fig.width=14, fig.height=10, }
+a <- getCorrelation(meth, plot = TRUE)
+```
+
+## Clustering samples
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='hide',fig.keep='all', fig.width=14, fig.height=10}
+clusterSamples(meth, dist="correlation", method="ward", plot=TRUE)
+```
+
+## Dimension reduction by PCA
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis', fig.width=14, fig.height=10}
+PCASamples(meth)
+```
+
+## Batch effects
+
+# Differential methylated loci
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis', fig.width=14, fig.height=10}
+if (file.exists(file.path(path.to.02.output, "DML.rds")) == FALSE){
+  myDiff <- calculateDiffMeth(meth, mc.cores = 45)
+  saveRDS(myDiff, file.path(path.to.02.output, "DML.rds"))
+} else {
+  myDiff <- readRDS(file.path(path.to.02.output, "DML.rds"))
+}
+
+# get hyper methylated bases
+diff.loci.hyper <- getMethylDiff(myDiff, difference = methdiff.cutoff, qvalue = qvalue.cutoff, type = "hyper")
+
+# get hypo methylated bases
+diff.loci.hypo <- getMethylDiff(myDiff, difference = methdiff.cutoff, qvalue = qvalue.cutoff, type = "hypo")
+
+# get all differentially methylated bases
+if (file.exists(file.path(path.to.02.output, "diff_locidf.rds")) == FALSE){
+  diff.loci <- getMethylDiff(myDiff, difference = methdiff.cutoff, qvalue = qvalue.cutoff)
+  saveRDS(diff.loci, file.path(path.to.02.output, "diff_locidf.rds"))  
+} else {
+  diff.loci <- readRDS(file.path(path.to.02.output, "diff_locidf.rds"))
+}
+
+
+```
+
+## List of all differentially methylated loci
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis', fig.width=14, fig.height=10}
+diff.loci %>% as.data.frame() %>% create_dt()
+```
+
+## List of all differentially methylated loci (Hyper)
+Regions could be sorted by **meth.diff**, click on the up-triangle or down-triangle to sort the table.
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis', fig.width=14, fig.height=10}
+diff.loci.hyper %>% as.data.frame() %>% create_dt()
+```
+
+
+## List of all differentially methylated loci (Hypo)
+Regions could be sorted by **meth.diff**, click on the up-triangle or down-triangle to sort the table.
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis', fig.width=14, fig.height=10}
+diff.loci.hypo%>% as.data.frame() %>% create_dt()
+```
+
+
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis', fig.width=14, fig.height=10}
+diff.loci.Granges <- as(diff.loci,"GRanges")
+hypo.loci.Granges <- as(diff.loci.hypo, "GRanges")
+hyper.loci.Granges <- as(diff.loci.hyper, "GRanges")
+```
+
+# Differentially methylated regions
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis', fig.width=14, fig.height=10}
+library(GenomicRanges)
+
+methdf <- getData(meth)
+
+methdf.grange <- makeGRangesFromDataFrame(methdf)
+
+if (file.exists(file.path(path.to.02.output, "finished_generating_DMR.csv")) == FALSE){
+  meth.chr <- hash()
+  tiles <- hash()
+  diff.regions.by.chr <- hash()
+  methdf.grange.chr <- hash()
+  
+  diff.regiondf <- data.frame()
+  for (chrom in setdiff(unique(methdf$chr), c("X", "Y", "MT"))){
+    print(sprintf("Working on chromosome: %s", chrom))
+    methdf.grange.chr[[chrom]] <- subset(methdf.grange, seqnames == chrom) 
+    
+    meth.chr[[chrom]] <- selectByOverlap(meth, methdf.grange.chr[[chrom]])
+    tiles[[chrom]] <- tileMethylCounts(meth.chr[[chrom]], win.size=1000, step.size=1000, cov.bases = min.cov.bases, mc.cores = 40)
+    
+    if( dim(tiles[[chrom]])[[1]] != 0){
+      diff.regions.by.chr[[chrom]] <- data.frame(calculateDiffMeth(tiles[[chrom]])) 
+      diff.regiondf <- rbind(diff.regiondf, diff.regions.by.chr[[chrom]])
+    }
+  }
+  
+  diff.regiondf <- diff.regiondf %>% rowwise() %>%
+    mutate(abs.meth.diff = abs(meth.diff)) %>%
+    mutate(sig = ifelse(qvalue <= qvalue.cutoff & abs.meth.diff >= methdiff.cutoff, "significant", "not.significant"))
+  diff.regiondf.raw <- diff.regiondf
+  
+  diff.regiondf <- subset(diff.regiondf, sig == "significant")
+  diff.regiondf <- diff.regiondf %>% rowwise() %>% 
+    mutate(name = sprintf("%s.%s.%s", chr,  start, end))
+  
+  saveRDS(meth.chr, file.path(path.to.02.output, "meth_chr.rds"))
+  saveRDS(tiles, file.path(path.to.02.output, "tiles.rds"))
+  saveRDS(diff.regions.by.chr, file.path(path.to.02.output, "diff_regions_by_chr.rds"))
+  saveRDS(methdf.grange.chr, file.path(path.to.02.output, "methdf_grange_chr.rds"))
+  saveRDS(diff.regiondf.raw, file.path(path.to.02.output, "diff_regiondf_raw.rds"))
+  saveRDS(diff.regiondf, file.path(path.to.02.output, "diff_regiondf.rds"))
+  write.csv(data.frame(status = c("Finished generating DMR results")), file.path(path.to.02.output, "finished_generating_DMR.csv"))
+} else {
+  meth.chr <- readRDS(file.path(path.to.02.output, "meth_chr.rds"))
+  tiles <- readRDS(file.path(path.to.02.output, "tiles.rds"))
+  diff.regions.by.chr <- readRDS(file.path(path.to.02.output, "diff_regions_by_chr.rds"))
+  methdf.grange.chr <- readRDS(file.path(path.to.02.output, "methdf_grange_chr.rds"))
+  diff.regiondf.raw <- readRDS(file.path(path.to.02.output, "diff_regiondf_raw.rds"))
+  diff.regiondf <- readRDS(file.path(path.to.02.output, "diff_regiondf.rds"))
+}
+
+```
+
+## List of all differential methylation regions {.tabset}
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis', fig.width=14, fig.height=10}
+diff.regiondf %>% create_dt()
+```
+
+## List of all hypo differential methylation regions {.tabset}
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis', fig.width=14, fig.height=10}
+diff.regiondf %>% subset(meth.diff <= 0) %>% create_dt()
+```
+
+## List of all hyper differential methylation regions {.tabset}
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis', fig.width=14, fig.height=10}
+diff.regiondf %>% subset(meth.diff > 0) %>% create_dt()
+```
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis', fig.width=14, fig.height=10}
+diff.region.Granges <- as(diff.regiondf,"GRanges")
+```
+
+# Heatmap
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis', fig.width=14, fig.height=10}
+num.split <- 20000
+```
+
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis', fig.width=14, fig.height=10}
+meth.cpg.matrix <- percMethylation(meth, rowids = TRUE)
+meth.region.matrix <- percMethylation(tiles$`1`, rowids = TRUE)
+for (chrom in seq(2, 22)){
+  meth.region.matrix <- rbind(meth.region.matrix, percMethylation(tiles[[sprintf("%s", chrom)]], rowids = TRUE))
+}
+```
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis', fig.width=14, fig.height=10}
+diff.locidf <- diff.loci.Granges %>% as.data.frame() %>% rowwise() %>%
+  mutate(name = sprintf("%s.%s.%s", str_replace(seqnames, "chr", ""), start, end))
+diff.meth.cpg.matrix <- meth.cpg.matrix[diff.locidf$name,]
+
+diff.meth.region.matrix <- meth.region.matrix[diff.regiondf$name,]
+
+meta.data <- meta.data %>% arrange(desc(Label))
+```
+
+## DML {.tabset}
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis', fig.width=14, fig.height=10}
+if (is.null(dim(diff.meth.cpg.matrix)) == TRUE){
+  ggplot() + ggtitle("Not enough differentially methylated CpG to show")
+} else {
+  diff.meth.cpg.matrix <- diff.meth.cpg.matrix[, meta.data$filename]
+  diff.meth.cpg.matrix.scaled <- (diff.meth.cpg.matrix - rowMeans(diff.meth.cpg.matrix))/rowSds(diff.meth.cpg.matrix, useNames = TRUE)
+  
+  if (nrow(diff.meth.cpg.matrix.scaled) != 0){
+    if (group1 != "100"){
+      pheatmap::pheatmap(diff.meth.cpg.matrix, cluster_rows = TRUE, cluster_cols = TRUE, scale = "row", show_rownames = FALSE)    
+    } else {
+      split.dml <- split(row.names(diff.meth.cpg.matrix), ceiling(seq_along(row.names(diff.meth.cpg.matrix)) / num.split))
+      for (i in names(split.dml)){
+        tmpdf <- diff.meth.cpg.matrix[split.dml[[i]], ]
+        cat(sprintf("### Part %s \n", i))
+        pheatmap::pheatmap(tmpdf, cluster_rows = TRUE, cluster_cols = TRUE, scale = "row", show_rownames = FALSE) 
+        cat("\n \n")
+      }
+    }
+  
+  }  
+}
+
+```
+
+## DMR {.tabset}
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis', fig.width=14, fig.height=10}
+if (is.null(dim(diff.meth.region.matrix)) == TRUE){
+  ggplot() + ggtitle("Not enough differentially methylated DMR to show")
+} else {
+  diff.meth.region.matrix <- diff.meth.region.matrix[, meta.data$filename]
+  diff.meth.region.matrix.scaled <- (diff.meth.region.matrix - rowMeans(diff.meth.region.matrix))/rowSds(diff.meth.region.matrix, useNames = TRUE)
+  
+  if (nrow(diff.meth.region.matrix.scaled) != 0){
+    if (group1 != "100"){
+      pheatmap::pheatmap(diff.meth.region.matrix, cluster_rows = TRUE, cluster_cols = TRUE, scale = "row", show_rownames = FALSE)
+    } else {
+      split.dmr <- split(row.names(diff.meth.region.matrix), ceiling(seq_along(row.names(diff.meth.region.matrix)) / num.split))
+      for (i in names(split.dmr)){
+        tmpdf <- diff.meth.region.matrix[split.dmr[[i]], ]
+        cat(sprintf("### Part %s \n", i))
+        pheatmap::pheatmap(tmpdf, cluster_rows = TRUE, cluster_cols = TRUE, scale = "row", show_rownames = FALSE)
+        cat("\n \n")
+      }
+    }
+  
+  }  
+}
+
+
+```
+
+# Volcano plot
+
+**We calculate methylation difference as the difference of (group: 1) - control (group: 0)**
+
+## DML
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis', fig.width=14, fig.height=10}
+if (file.exists(file.path(path.to.02.output, "diff_loci_raw.rds")) == FALSE){
+  diff.loci.raw <- data.frame(myDiff) %>%
+    rowwise() %>%
+    mutate(locus.name = sprintf("%s.%s.%s", chr, start, end)) %>%
+    mutate(abs.meth.diff = abs(meth.diff))
+  
+  diff.loci.raw <- diff.loci.raw %>% rowwise() %>%
+    # mutate(mean.0 = meth.cpg.matrix[locus.name, subset(meta.data, meta.data$Label == 0)$filename] %>% mean()) %>%
+    # mutate(mean.1 = meth.cpg.matrix[locus.name, subset(meta.data, meta.data$Label == 1)$filename] %>% mean()) %>%
+    # mutate(median.0 = meth.cpg.matrix[locus.name, subset(meta.data, meta.data$Label == 0)$filename] %>% median()) %>%
+    # mutate(median.1 = meth.cpg.matrix[locus.name, subset(meta.data, meta.data$Label == 1)$filename] %>% median()) %>%
+    # mutate(log2FC = log2(mean.0/mean.1)) %>%
+    mutate(sig = ifelse(qvalue <= qvalue.cutoff & abs.meth.diff >= methdiff.cutoff, "significant", "not.significant"))
+saveRDS(diff.loci.raw, file.path(path.to.02.output, "diff_loci_raw.rds"))
+} else {
+  diff.loci.raw <- readRDS(file.path(path.to.02.output, "diff_loci_raw.rds"))
+}
+
+```
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis', fig.width=14, fig.height=10}
+diff.loci.raw %>% ggplot(aes(x = meth.diff, y = -log10(qvalue), color = sig)) + 
+  geom_point() + 
+  geom_vline(xintercept = 0, linetype = "dotted") + 
+  geom_vline(xintercept = methdiff.cutoff, linetype = "dashed") + 
+  geom_vline(xintercept = -methdiff.cutoff, linetype = "dashed") + 
+  scale_color_manual(values = c("gray", "red"))
+```
+h.
+to
+## DMR
+
+The following volcano plot has a "jitter" of width = 0.5 an.d height = 0.5
+
+(If all dots are "significant", the color is gray!)
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis', fig.width=14, fig.height=10}
+if (group1 == "100"){
+  p <- diff.regiondf.raw %>% ggplot(aes(x = meth.diff, y = -log10(qvalue + 0.001), color = sig)) + 
+  geom_point(size = 2) +
+  geom_jitter(width = 0.5, height = 0.5) + 
+  geom_vline(xintercept = 0, linetype = "dotted") + 
+  geom_vline(xintercept = methdiff.cutoff, linetype = "dashed") + 
+  geom_vline(xintercept = -methdiff.cutoff, linetype = "dashed") +
+  scale_color_manual(values = c("gray", "red"))  
+} else {
+  p <- diff.regiondf.raw %>% ggplot(aes(x = meth.diff, y = -log10(qvalue), color = sig)) + 
+  geom_point(size = 2) +
+  geom_jitter(width = 0.5, height = 0.5) + 
+  geom_vline(xintercept = 0, linetype = "dotted") + 
+  geom_vline(xintercept = methdiff.cutoff, linetype = "dashed") + 
+  geom_vline(xintercept = -methdiff.cutoff, linetype = "dashed") +
+  scale_color_manual(values = c("gray", "red"))
+}
+print(p)
+```
+
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis', fig.width=14, fig.height=10}
+```
+

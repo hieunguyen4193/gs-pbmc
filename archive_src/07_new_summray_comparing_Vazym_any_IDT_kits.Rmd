@@ -1,0 +1,79 @@
+---
+title: "Correlation between Vazym and IDT samples at different spike-in ratios, min.cov = `r params$min.cov`"
+author:
+  - "hieunguyen@genesolutions.vn"
+date: "Last update on `r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document:
+    keep_md: no
+    df_print: paged
+    toc: true
+    toc_float:
+      toc_collapsed: false
+    toc_depth: 3
+    number_sections: true
+    theme: lumen
+params:
+  min.cov: NA
+---
+
+
+```{css zoom-lib-src, echo = FALSE}
+script src = "https://ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js"
+```
+
+```{js zoom-jquery, echo = FALSE}
+ $(document).ready(function() {
+    $('body').prepend('<div class=\"zoomDiv\"><img src=\"\" class=\"zoomImg\"></div>');
+    // onClick function for all plots (img's)
+    $('img:not(.zoomImg)').click(function() {
+      $('.zoomImg').attr('src', $(this).attr('src')).css({width: '100%'});
+      $('.zoomDiv').css({opacity: '1', width: 'auto', border: '1px solid white', borderRadius: '5px', position: 'fixed', top: '50%', left: '50%', marginRight: '-50%', transform: 'translate(-50%, -50%)', boxShadow: '0px 0px 50px #888888', zIndex: '50', overflow: 'auto', maxHeight: '100%'});
+    });
+    // onClick function for zoomImg
+    $('img.zoomImg').click(function() {
+      $('.zoomDiv').css({opacity: '0', width: '0%'}); 
+    });
+  });
+```
+
+<style type="text/css">
+    div.datatables { height: auto !important;}
+</style>
+
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='hide', fig.width=14, fig.height=10}
+# gc()
+# rm(list = ls())
+
+min.cov <- 5
+# min.cov <- params$min.cov
+analysis.version <- "0.1"
+sample.type <- "all"
+
+library(ggpubr)
+path.to.main.src <- "/home/hieunguyen/PBMC_methylKit/src_v2"
+source(file.path(path.to.main.src, "import_libraries.R"))
+source(file.path(path.to.main.src, "helper_functions.R"))
+source(file.path(path.to.main.src, "configs.R"))
+
+min.cov.bases <- configs[[analysis.version]]$min.cov.bases
+qvalue.cutoff <- configs[[analysis.version]]$qvalue.cutoff
+methdiff.cutoff <- configs[[analysis.version]]$methdiff.cutoff
+log2FC.cutoff <- configs[[analysis.version]]$log2FC.cutoff
+up.flank <- configs[[analysis.version]]$up.flank
+down.flank <- configs[[analysis.version]]$down.flank
+
+maindir <- "/home/hieunguyen/PBMC_methylKit"
+path.to.input <- file.path(maindir, "input_5x")
+path.to.main.output <- file.path(maindir, "output_v2")
+
+path.to.04.output <- file.path(path.to.main.output, sprintf("04_output_%s", analysis.version), sprintf("minCov_%s_sampleType_%s", min.cov, sample.type))
+path.to.07.output <- file.path(path.to.main.output, sprintf("07_output_%s", analysis.version), sprintf("minCov_%s_sampleType_%s", min.cov, sample.type))
+dir.create(path.to.07.output, showWarnings = FALSE, recursive = TRUE)
+
+```
+
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis', fig.width=14, fig.height=10}
+```

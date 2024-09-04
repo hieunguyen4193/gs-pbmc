@@ -1,0 +1,132 @@
+---
+title: "Validate annotation results from publication"
+author:
+  - "hieunguyen@genesolutions.vn"
+date: "Last update on `r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document:
+    keep_md: no
+    df_print: paged
+    toc: true
+    toc_float:
+      toc_collapsed: false
+    toc_depth: 3
+    number_sections: true
+    theme: lumen
+---
+
+
+```{css zoom-lib-src, echo = FALSE}
+script src = "https://ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js"
+```
+
+```{js zoom-jquery, echo = FALSE}
+ $(document).ready(function() {
+    $('body').prepend('<div class=\"zoomDiv\"><img src=\"\" class=\"zoomImg\"></div>');
+    // onClick function for all plots (img's)
+    $('img:not(.zoomImg)').click(function() {
+      $('.zoomImg').attr('src', $(this).attr('src')).css({width: '100%'});
+      $('.zoomDiv').css({opacity: '1', width: 'auto', border: '1px solid white', borderRadius: '5px', position: 'fixed', top: '50%', left: '50%', marginRight: '-50%', transform: 'translate(-50%, -50%)', boxShadow: '0px 0px 50px #888888', zIndex: '50', overflow: 'auto', maxHeight: '100%'});
+    });
+    // onClick function for zoomImg
+    $('img.zoomImg').click(function() {
+      $('.zoomDiv').css({opacity: '0', width: '0%'}); 
+    });
+  });
+```
+
+<style type="text/css">
+    div.datatables { height: auto !important;}
+</style>
+
+
+In this analysis, we validate our annotation tools by published dataset from [Identification of DNA methylation biomarkers for risk of liver metastasis in early-stage colorectal cancer](https://clinicalepigeneticsjournal.biomedcentral.com/articles/10.1186/s13148-021-01108-3)
+
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='hide', fig.width=14, fig.height=10}
+# gc()
+# rm(list = ls())
+
+path.to.main.src <- "/home/hieunguyen/PBMC_methylKit/src_v2"
+source(file.path(path.to.main.src, "import_libraries.R"))
+source(file.path(path.to.main.src, "helper_functions.R"))
+source(file.path(path.to.main.src, "prepare_promoter_regions.R"))
+library(GenomicRanges)
+source(file.path(path.to.main.src, "configs.R"))
+
+
+# analysis.version <- params$analysis.version
+
+validationdf <- readxl::read_excel(file.path(path.to.main.src, "validation_DMR_annotation.xlsx"), col_names  = FALSE)
+colnames(validationdf) <- c("locus_name", "gene")
+validationdf <- validationdf %>% rowwise() %>%
+  mutate(chrom = str_split(locus_name, "[.]")[[1]][[1]]) %>%
+  mutate(chrom_noChr = str_replace(str_split(locus_name, "[.]")[[1]][[1]], "chr", "")) %>%
+  mutate(start = str_split(locus_name, "[.]")[[1]][[2]] %>% as.numeric()) %>%
+  mutate(end = str_split(locus_name, "[.]")[[1]][[3]] %>% as.numeric()) %>%
+  mutate(locus_name = str_replace_all(locus_name, "[.]", "_"))
+
+# up.flank <- configs[[analysis.version]]$up.flank
+# down.flank <- configs[[analysis.version]]$down.flank
+library(TxDb.Hsapiens.UCSC.hg19.knownGene)
+txdb <- TxDb.Hsapiens.UCSC.hg19.knownGene #shorthand (for convenience)
+
+up.flank <- 1500
+down.flank <- 500
+
+convert.symboldf <- as.data.frame(org.Hs.egSYMBOL)
+promoter.grange <- promoters(txdb, upstream=up.flank, downstream=down.flank, use.names = TRUE)
+convertdf <- select(txdb, keys = unique(promoter.grange$tx_name), columns=c("TXNAME", "GENEID"), keytype="TXNAME")
+convertdf <- merge(convertdf, convert.symboldf, by.x = "GENEID", by.y = "gene_id")
+
+```
+
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis', fig.width=14, fig.height=10}
+validationdf %>% create_dt()
+```
+
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis', fig.width=14, fig.height=10}
+promoterdf <- define_promoter_regions(up.flank = up.flank,
+                                      down.flank = down.flank, 
+                                      path.to.save.promoterdf = path.to.main.src)
+promoterdf <- promoterdf %>%
+  rowwise() %>%
+  mutate(promoter_seqnames = str_replace(promoter_seqnames, "chr", ""))
+promoter.grange <- makeGRangesFromDataFrame(df = promoterdf, 
+                                            seqnames.field = "promoter_seqnames",
+                                            start.field = "promoter_start",
+                                            end.field = "promoter_end",
+                                            strand.field = "promoter_strand", keep.extra.columns = TRUE)
+
+validation.grange <- makeGRangesFromDataFrame(validationdf, seqnames.field = "chrom", start.field = "start", end.field = "end")
+
+validation.grange.noChr <- makeGRangesFromDataFrame(validationdf, seqnames.field = "chrom_noChr", start.field = "start", end.field = "end")
+```
+
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis', fig.width=14, fig.height=10}
+overlap.idxs <-  findOverlaps(validation.grange.noChr, promoter.grange)
+tmpdf1 <- validation.grange.noChr[queryHits(overlap.idxs), ] %>% data.frame() %>%
+  rowwise() %>%
+  mutate(locus_name = sprintf("%s_%s_%s", seqnames, start, end))
+tmpdf2 <- promoter.grange[subjectHits(overlap.idxs), ] %>% data.frame() %>%
+  rowwise() %>%
+  mutate(promoter.name = sprintf("%s_%s_%s", seqnames, start, end))
+colnames(tmpdf2) <- to_vec ( for (item in colnames(tmpdf2)) sprintf("promoter_%s", item))
+outputdf <- cbind(subset(tmpdf1, select = c(locus_name)),
+                  tmpdf2)
+outputdf <- outputdf %>% 
+  rowwise() %>%
+  mutate(locus_name = sprintf("chr%s", locus_name))
+
+validationdf <- merge(validationdf, outputdf, by.x = "locus_name", by.y = "locus_name", all.x = TRUE)
+```
+
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis', fig.width=14, fig.height=10}
+validationdf %>% create_dt()
+```
+
+

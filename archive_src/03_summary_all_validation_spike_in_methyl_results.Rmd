@@ -1,0 +1,122 @@
+---
+title: "Summary all comparisons in `r params$sample.type` at depth-cov `r params$min.cov`"
+author:
+  - "hieunguyen@genesolutions.vn"
+date: "Last update on `r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document:
+    keep_md: no
+    df_print: paged
+    toc: true
+    toc_float:
+      toc_collapsed: false
+    toc_depth: 3
+    number_sections: true
+    theme: lumen
+params:
+  sample.type: NA
+  min.cov: NA
+  analysis.version: NA
+---
+
+
+```{css zoom-lib-src, echo = FALSE}
+script src = "https://ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js"
+```
+
+```{js zoom-jquery, echo = FALSE}
+ $(document).ready(function() {
+    $('body').prepend('<div class=\"zoomDiv\"><img src=\"\" class=\"zoomImg\"></div>');
+    // onClick function for all plots (img's)
+    $('img:not(.zoomImg)').click(function() {
+      $('.zoomImg').attr('src', $(this).attr('src')).css({width: '100%'});
+      $('.zoomDiv').css({opacity: '1', width: 'auto', border: '1px solid white', borderRadius: '5px', position: 'fixed', top: '50%', left: '50%', marginRight: '-50%', transform: 'translate(-50%, -50%)', boxShadow: '0px 0px 50px #888888', zIndex: '50', overflow: 'auto', maxHeight: '100%'});
+    });
+    // onClick function for zoomImg
+    $('img.zoomImg').click(function() {
+      $('.zoomDiv').css({opacity: '0', width: '0%'}); 
+    });
+  });
+```
+
+<style type="text/css">
+    div.datatables { height: auto !important;}
+</style>
+
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='hide', fig.width=14, fig.height=10}
+# gc()
+# rm(list = ls())
+
+# min.cov <- params$min.cov
+# sample.type <- params$sample.type
+# analysis.version <- params$analysis.version
+
+min.cov <- 5
+sample.type <- "all"
+analysis.version <- "0.1"
+
+path.to.main.src <- "/home/hieunguyen/PBMC_methylKit/src_v2"
+source(file.path(path.to.main.src, "import_libraries.R"))
+source(file.path(path.to.main.src, "helper_functions.R"))
+source(file.path(path.to.main.src, "configs.R"))
+
+min.cov.bases <- configs[[analysis.version]]$min.cov.bases
+qvalue.cutoff <- configs[[analysis.version]]$qvalue.cutoff
+methdiff.cutoff <- configs[[analysis.version]]$methdiff.cutoff
+log2FC.cutoff <- configs[[analysis.version]]$log2FC.cutoff
+up.flank <- configs[[analysis.version]]$up.flank
+down.flank <- configs[[analysis.version]]$down.flank
+
+##### Preprocess .cov file: remove CpG positions that have less than 5 reads, 10 reads.
+#> awk -F'\t' '$5 + $6 >= 5' test.cov > test.filtered.cov
+#> for file in $files;do filename=${file%.cov*} && \
+#> echo -e "working on sample " $filename "\n" && \
+#> awk -F'\t' '$5 + $6 >= 5' ./cov/${filename}.cov > filtered_5reads_cov/${filename}.filtered.cov;done
+
+maindir <- "/home/hieunguyen/PBMC_methylKit"
+path.to.input <- file.path(maindir, "input_5x")
+path.to.main.output <- file.path(maindir, "output_v2")
+path.to.02.output <- file.path(path.to.main.output, sprintf("02_output_%s", analysis.version), sprintf("minCov_%s_sampleType_%s", min.cov, sample.type))
+path.to.03.output <- file.path(path.to.main.output, sprintf("03_output_%s", analysis.version))
+dir.create(path.to.03.output, showWarnings = FALSE, recursive = TRUE)
+
+all.results <- Sys.glob(file.path(path.to.02.output, "*"))
+names(all.results) <- basename(all.results)
+
+maindf <- data.frame()
+for (i in seq(1, length(all.results))){
+  group.name <- names(all.results)[[i]]
+  tmp.diff.locidf <- readRDS(file.path(all.results[[i]], "diff_locidf.rds"))
+  tmp.diff.regiondf <- readRDS(file.path(all.results[[i]], "diff_regiondf.rds"))
+  tmpdf <- data.frame(comparison = c(group.name), num.diff.loci = nrow(tmp.diff.locidf), num.diff.region = nrow(tmp.diff.regiondf))
+  maindf <- rbind(maindf, tmpdf)
+}
+
+maindf <- maindf %>% rowwise() %>%
+  mutate(spike.in.ratio = str_split(comparison, "_vs_")[[1]][[2]] %>% as.numeric()) %>%
+  mutate(spike.in.ratio = spike.in.ratio/100)
+```
+
+# Summary table
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis', fig.width=14, fig.height=10}
+maindf %>% create_dt()
+```
+
+# Plot: number of DML
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis', fig.width=14, fig.height=10}
+library(ggpubr)
+maindf %>% as.data.frame() %>% ggplot(aes(x = log2(spike.in.ratio), y = num.diff.loci)) +
+  geom_point(size = 6) + stat_cor(method = "pearson", p.accuracy = 0.001, r.accuracy = 0.01, size = 14) + 
+  theme_pubr(base_size = 15) + scale_x_continuous(breaks = log2(sort(maindf$spike.in.ratio)), labels = maindf$spike.in.ratio) 
+```
+
+# Plot: number of DMR
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis', fig.width=14, fig.height=10}
+maindf %>% as.data.frame() %>% ggplot(aes(x = log2(spike.in.ratio), y = num.diff.region)) +
+  geom_point(size = 6) + stat_cor(method = "pearson", p.accuracy = 0.001, r.accuracy = 0.01, size = 14) + 
+  theme_pubr(base_size = 15) + scale_x_continuous(breaks = log2(sort(maindf$spike.in.ratio)), labels = maindf$spike.in.ratio)
+```
+
+
+

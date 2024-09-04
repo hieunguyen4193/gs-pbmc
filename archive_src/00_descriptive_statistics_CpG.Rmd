@@ -1,0 +1,179 @@
+---
+title: "Differential methylated regions analysis with MethylKit, sample type `r params$sample.type`, min CpG coverage: `r params$min.cov`"
+author:
+  - "hieunguyen@genesolutions.vn"
+date: "Last update on `r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document:
+    keep_md: no
+    df_print: paged
+    toc: true
+    toc_float:
+      toc_collapsed: false
+    toc_depth: 3
+    number_sections: true
+    theme: lumen
+params:
+  sample.type: NA
+  min.cov: NA
+---
+
+
+```{css zoom-lib-src, echo = FALSE}
+script src = "https://ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js"
+```
+
+```{js zoom-jquery, echo = FALSE}
+ $(document).ready(function() {
+    $('body').prepend('<div class=\"zoomDiv\"><img src=\"\" class=\"zoomImg\"></div>');
+    // onClick function for all plots (img's)
+    $('img:not(.zoomImg)').click(function() {
+      $('.zoomImg').attr('src', $(this).attr('src')).css({width: '100%'});
+      $('.zoomDiv').css({opacity: '1', width: 'auto', border: '1px solid white', borderRadius: '5px', position: 'fixed', top: '50%', left: '50%', marginRight: '-50%', transform: 'translate(-50%, -50%)', boxShadow: '0px 0px 50px #888888', zIndex: '50', overflow: 'auto', maxHeight: '100%'});
+    });
+    // onClick function for zoomImg
+    $('img.zoomImg').click(function() {
+      $('.zoomDiv').css({opacity: '0', width: '0%'}); 
+    });
+  });
+```
+
+<style type="text/css">
+    div.datatables { height: auto !important;}
+</style>
+
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='hide', fig.width=14, fig.height=10}
+# gc()
+# rm(list = ls())
+
+# min.cov <- params$min.cov
+# sample.type <- params$sample.type
+
+min.cov <- 1
+sample.type <- "all"
+```
+
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis', fig.width=14, fig.height=10}
+print(sprintf("Min CpG Coverage: %s", min.cov))
+```
+
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis', fig.width=14, fig.height=10}
+print(sprintf("Sample type: %s", sample.type))
+```
+
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='hide', fig.width=14, fig.height=10}
+
+min.cov.bases <- 10
+
+path.to.main.src <- "/home/hieunguyen/methylKit/src"
+source(file.path(path.to.main.src, "import_libraries.R"))
+source(file.path(path.to.main.src, "helper_functions.R"))
+
+##### Preprocess .cov file: remove CpG positions that have less than 5 reads, 10 reads.
+#> awk -F'\t' '$5 + $6 >= 5' test.cov > test.filtered.cov
+#> for file in $files;do filename=${file%.cov*} && \
+#> echo -e "working on sample " $filename "\n" && \
+#> awk -F'\t' '$5 + $6 >= 5' ./cov/${filename}.cov > filtered_5reads_cov/${filename}.filtered.cov;done
+
+maindir <- "/home/hieunguyen/methylKit"
+path.to.input <- file.path(maindir, "input")
+path.to.main.output <- file.path(maindir, "output")
+path.to.01.output <- file.path(path.to.main.output, "01_output", sprintf("minCov_%s_sampleType_%s", min.cov, sample.type))
+dir.create(path.to.01.output, showWarnings = FALSE, recursive = TRUE)
+
+# all.cov.files <- Sys.glob(file.path(path.to.input, sprintf("filtered_%sreads_cov", min.cov), "*.cov"))
+
+all.cov.files <- Sys.glob(file.path(path.to.input, "cov", "*.cov"))
+
+names(all.cov.files) <- unlist(lapply(all.cov.files, function(x){
+  x <- basename(x)
+  x <- str_replace(x, ".deduplicated.bedGraph.gz.bismark.zero.filtered.cov", "")
+  # x <- str_split(x, "-")[[1]][[2]]
+  # x <- str_split(x, "_")[[1]][[1]]
+  return(x)
+}))
+
+meta.data <- data.frame(filename = names(all.cov.files))
+meta.data <- meta.data %>% rowwise() %>%
+  mutate(Label = ifelse(grepl("BCNB", filename), 1, 0)) %>%
+  mutate(Sample.type = ifelse(grepl("_D", filename) == TRUE, "D", "M"))
+
+if (sample.type == "D"){
+  meta.data <- subset(meta.data, meta.data$Sample.type == "D")
+  all.cov.files <- all.cov.files[meta.data$filename]
+} else if (sample.type == "M"){
+  meta.data <- subset(meta.data, meta.data$Sample.type == "M")
+  all.cov.files <- all.cov.files[meta.data$filename]
+}
+labels <- unlist(lapply(names(all.cov.files), function(x){
+  return(subset(meta.data, meta.data$filename == x)$Label)
+}))
+
+```
+
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='hide', fig.width=14, fig.height=10}
+# devtools::source_gist("4839e615e2401d73fe51")
+
+main.obj <- readBismarkCoverage( all.cov.files,
+                     sample.id = names(all.cov.files),
+                     assembly = "hg19",
+                     treatment = labels,
+                     context = "CpG",
+                     min.cov = min.cov)
+
+qvalue.cutoff <- 0.01
+methdiff.cutoff <- 10
+log2FC.cutoff <- 1
+```
+
+```{r echo=TRUE, warning=FALSE, message=FALSE, results='asis', fig.width=14, fig.height=10}
+print(sprintf("Min coverage of CpGs used in this analysis: %s", min.cov))
+```
+
+
+```{r echo=TRUE, warning=FALSE, message=FALSE, results='asis', fig.width=14, fig.height=10}
+print(sprintf("Min number of CpGs in a region to be considered in this analysis: %s", min.cov.bases))
+```
+
+
+```{r echo=TRUE, warning=FALSE, message=FALSE, results='asis', fig.width=14, fig.height=10}
+print(sprintf("q-value (adjusted p-value) cut-off = %s", qvalue.cutoff))
+```
+
+```{r echo=TRUE, warning=FALSE, message=FALSE, results='asis', fig.width=14, fig.height=10}
+print(sprintf("meth.diff cut-off = %s", methdiff.cutoff))
+```
+
+# Metadata
+
+**We calculate methylation difference as the difference of (group: 1) - control (group: 0)**
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis', fig.width=14, fig.height=10}
+meta.data %>% create_dt()
+```
+
+# Descriptive statistics on each sample 
+## Histogram of % CpG methylation {.tabset}
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='hide', fig.width=14, fig.height=10}
+for (i in seq(length(all.cov.files))){
+  cat(sprintf("### %s \n", names(all.cov.files)[[i]]))
+  getMethylationStats(main.obj[[i]], plot=TRUE, both.strands=FALSE)  
+  cat("\n \n")
+}
+
+```
+
+## Histogram of CpG coverage {.tabset}
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='hide', fig.width=14, fig.height=10}
+for (i in seq(length(all.cov.files))){
+  cat(sprintf("### %s \n", names(all.cov.files)[[i]]))
+  getCoverageStats(main.obj[[i]], plot=TRUE, both.strands=FALSE)  
+  cat("\n \n")
+}
+
+```
