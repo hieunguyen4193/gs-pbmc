@@ -1,0 +1,5 @@
+path_to_bed_files="/media/hieunguyen/GSHD_HN01/storage/PBMC/bed_files";
+
+vi_bedfile=${path_to_bed_files}/covered_targets_Twist_Methylome_hg19_annotated_collapsed_plus_gapfill_SpikeIn.bed;
+truong_bedfile=$(path_to_bed_files)/merged_probe_file_shareable_Methyl_Genesolutions_CustomMethyl_MTE-95699147_hg19_Rev1_ProbeShift_LowStringency_240712165101.bed;
+

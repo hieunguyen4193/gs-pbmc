@@ -1,11 +1,18 @@
-outdir="/media/hieunguyen/HNSD_mini/data/PBMC";
+outdir="/media/hieunguyen/GSHD_HN01/storage/PBMC";
+
 # data_version="20240513";
 # data_version="20240601"
-data_version="20240617";
+# data_version="20240617";
+# data_version="20240911";
+# data_version="20241010_CRC"
+# data_version="20241010_Breast"
+
+data_version=$1
+
 mkdir -p ${outdir}/${data_version}/filtered_5reads_cov;
 mkdir -p ${outdir}/${data_version}/filtered_3reads_cov;
 mkdir -p ${outdir}/${data_version}/filtered_10reads_cov;
-files=$(ls ${outdir}/${data_version}/raw_cov);
+files=$(ls ${outdir}/${data_version}/raw_cov/*.cov | xargs -n 1 basename);
 
 for file in $files;do filename=${file%.cov*} && \
 echo -e "working on sample " $filename "\n" && \

@@ -53,18 +53,18 @@ source(file.path(path.to.main.src, "prepare_promoter_regions.R"))
 library(GenomicRanges)
 source(file.path(path.to.main.src, "configs.R"))
 
-# min.cov <- params$min.cov
-# analysis.version <- params$analysis.version
-# data.version <- params$data.version
-# output.version <- params$output.version
+min.cov <- params$min.cov
+analysis.version <- params$analysis.version
+data.version <- params$data.version
+output.version <- params$output.version
 
-# install.packages("/media/hieunguyen/HNHD01/backup/HNSD_mini/HNSD_mini1/data/PBMC/offline_pkgs/methylKit_1.30.0.tar.gz", type = "source", repos = NULL)
+# install.packages("/media/hieunguyen/GSHD_HN01/storage/PBMC/offline_pkgs/methylKit_1.30.0.tar.gz", type = "source", repos = NULL)
 # install.packages(file.path(path.to.main.src, "BSgenome.Hsapiens.UCSC.hg19_1.4.3.tar.gz"), type = "source", repos = NULL)
 
-min.cov <- 5
-analysis.version <- "0.4"
-data.version <- "20240617"
-output.version <- "20240715"
+# min.cov <- 5
+# analysis.version <- "0.4"
+# data.version <- "20240911"
+# output.version <- "20240911"
 
 min.cov.bases <- configs[[analysis.version]]$min.cov.bases
 qvalue.cutoff <- configs[[analysis.version]]$qvalue.cutoff
@@ -73,8 +73,8 @@ log2FC.cutoff <- configs[[analysis.version]]$log2FC.cutoff
 up.flank <- configs[[analysis.version]]$up.flank
 down.flank <- configs[[analysis.version]]$down.flank
 
-outdir <- "/media/hieunguyen/HNHD01/backup/HNSD_mini/HNSD_mini1/data/outdir"
-path.to.input <- file.path("/media/hieunguyen/HNHD01/backup/HNSD_mini/HNSD_mini1/data/PBMC", data.version)
+outdir <- "/media/hieunguyen/HNSD_mini/outdir"
+path.to.input <- file.path("/media/hieunguyen/GSHD_HN01/storage/PBMC", data.version)
 path.to.main.output <- file.path(outdir, "PBMC", "output", sprintf("data_%s", data.version), output.version)
 
 path.to.01.output <- file.path(path.to.main.output, sprintf("01_output_%s", analysis.version), sprintf("minCov_%s_sampleType_Vazym", min.cov))
@@ -358,7 +358,7 @@ diff.region.Granges <- as(diff.regiondf,"GRanges")
 ```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis', fig.width=14, fig.height=10}
 meth.cpg.matrix <- percMethylation(meth, rowids = TRUE)
 meth.region.matrix <- percMethylation(tiles$`1`, rowids = TRUE)
-for (chrom in seq(2, 22)){
+for (chrom in names(tiles)){
   meth.region.matrix <- rbind(meth.region.matrix, percMethylation(tiles[[sprintf("%s", chrom)]], rowids = TRUE))
 }
 ```
@@ -591,11 +591,16 @@ annot.dmrdf %>% create_dt()
 
 ```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis', fig.width=14, fig.height=10}
 
-tmpdf <- getData(meth.chr$`7`)
-region.start <- 112102001
-region.end <- 112103000
+# tmpdf <- getData(meth.chr$`7`)
+# region.start <- 112102001
+# region.end <- 112103000
+# 
+# subset(tmpdf, tmpdf$start >= region.start & tmpdf$start <= region.end)
+# str_extract_all(as.character(Biostrings::getSeq(BSgenome.Hsapiens.UCSC.hg19, "chr7", region.start, region.end + 1)), regex("CG"))[[1]] %>% length()
 
-subset(tmpdf, tmpdf$start >= region.start & tmpdf$start <= region.end)
-str_extract_all(as.character(Biostrings::getSeq(BSgenome.Hsapiens.UCSC.hg19, "chr7", region.start, region.end + 1)), regex("CG"))[[1]] %>% length()
 
+# tmpdf <- read.csv("/media/hieunguyen/GSHD_HN01/storage/PBMC/metadata/20241010_CRC.csv")
+# tmpdf <- tmpdf %>% rowwise() %>%
+#   mutate(Label = ifelse(grepl("CRC", Label), "Cancer", "Control"))
+# writexl::write_xlsx(tmpdf, "/media/hieunguyen/GSHD_HN01/storage/PBMC/metadata/20241010_CRC.xlsx")
 ```
