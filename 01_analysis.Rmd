@@ -53,15 +53,15 @@ source(file.path(path.to.main.src, "prepare_promoter_regions.R"))
 library(GenomicRanges)
 source(file.path(path.to.main.src, "configs.R"))
 
-# min.cov <- params$min.cov
-# analysis.version <- params$analysis.version
-# data.version <- params$data.version
-# output.version <- params$output.version
+min.cov <- params$min.cov
+analysis.version <- params$analysis.version
+data.version <- params$data.version
+output.version <- params$output.version
 
-min.cov <- 10
-analysis.version <- "0.1"
-data.version <- "20250117_Vi_CRC_filtered_bed"
-output.version <- "20250202"
+# min.cov <- 10
+# analysis.version <- "0.1"
+# data.version <- "20250117_Vi_CRC_filtered_bed"
+# output.version <- "20250202"
 
 # install.packages("/media/hieunguyen/GSHD_HN01/storage/PBMC/offline_pkgs/methylKit_1.30.0.tar.gz", type = "source", repos = NULL)
 # install.packages(file.path(path.to.main.src, "BSgenome.Hsapiens.UCSC.hg19_1.4.3.tar.gz"), type = "source", repos = NULL)
