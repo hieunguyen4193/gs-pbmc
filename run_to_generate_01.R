@@ -9,7 +9,7 @@ library(GenomicRanges)
 source(file.path(path.to.main.src, "configs.R"))
 
 # outdir <- "/media/hieunguyen/HNSD_mini/data/outdir"
-outdir <- "/media/hieunguyen/HNHD01/backup/HNSD_mini/HNSD_mini1/data/outdir"
+outdir <- "/media/hieunguyen/HNSD_mini/outdir"
 
 library(optparse)
 
@@ -39,8 +39,6 @@ analysis.version <- args$analysis_version
 # for (data.version in c("20240617", "20240601", "20240513")){
 path.to.rmd <- file.path(path.to.main.src, "01_analysis.Rmd")
   
-  # for (min.cov in c(10, 5)){
-  #   for (analysis.version in names(configs)){
 path.to.save.html.output <- file.path(outdir, "PBMC", "output", "html", sprintf("data_%s", data.version), output.version)
 dir.create(path.to.save.html.output, showWarnings = FALSE, recursive = TRUE)
 save.html.name <- sprintf("%s_minCov_%s_v%s.html", str_replace(basename(path.to.rmd), ".Rmd", ""), min.cov, analysis.version) 
@@ -56,9 +54,5 @@ if (file.exists(file.path(path.to.save.html.output, save.html.name)) == FALSE){
 } else {
   print(sprintf("File %s exists!", save.html.name))
 }
-    # }
-#   }
-# }
-
 
 
