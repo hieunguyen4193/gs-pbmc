@@ -32,11 +32,31 @@ maindir="/media/hieunguyen/GSHD_HN01/storage/PBMC";
 #     bedtools intersect -a ${file} -b ${vi_bedfile} -wa -wb > ${maindir}/${new_batch_name}/raw_cov/$(basename ${file});
 # done;done
 
+##### split to chromosomes, raw original data
+# path_to_save_splitChrom_data=${maindir}/20250117_Vi_data
+# mkdir -p ${path_to_save_splitChrom_data}
+
+# for i in {1..22};do \
+#     for batch_name in 20250117_Vi_Breast 20250117_Vi_Liver 20250117_Vi_Rectum 20250117_Vi_CRC 20250117_Vi_Lung 20250117_Vi_Stomach;do \
+#         echo -e "working on batch " ${batch_name} " at chrom " ${i};
+#         mkdir -p ${path_to_save_splitChrom_data}/${batch_name}/${batch_name}_chr${i};
+#         rsync -avh --progress ${maindir}/${batch_name}/metadata.xlsx ${path_to_save_splitChrom_data}/${batch_name}/${batch_name}_chr${i};
+#         mkdir -p ${path_to_save_splitChrom_data}/${batch_name}/${batch_name}_chr${i}/raw_cov;
+#         files=$(ls ${maindir}/${batch_name}/raw_cov/*.cov);
+#         for file in ${files};do \
+#             echo -e "Filtering file " ${file};
+#             awk -v chr="${i}" -F'\t' '$1 == chr' ${file} > ${path_to_save_splitChrom_data}/${batch_name}/${batch_name}_chr${i}/raw_cov/$(basename ${file});
+#         done;
+#     done;
+# done
+
+##### split to chromosomes, filtered-bed-file data
 path_to_save_splitChrom_data=${maindir}/20250117_Vi_data
 mkdir -p ${path_to_save_splitChrom_data}
 
 for i in {1..22};do \
     for batch_name in 20250117_Vi_Breast 20250117_Vi_Liver 20250117_Vi_Rectum 20250117_Vi_CRC 20250117_Vi_Lung 20250117_Vi_Stomach;do \
+        batch_name=${batch_name}_filtered_bed;
         echo -e "working on batch " ${batch_name} " at chrom " ${i};
         mkdir -p ${path_to_save_splitChrom_data}/${batch_name}/${batch_name}_chr${i};
         rsync -avh --progress ${maindir}/${batch_name}/metadata.xlsx ${path_to_save_splitChrom_data}/${batch_name}/${batch_name}_chr${i};
