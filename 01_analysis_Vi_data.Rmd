@@ -62,8 +62,8 @@ data.group <- params$data.group
 
 min.cov <- 10
 analysis.version <- "0.1"
-data.version <- "20250117_Vi_CRC_filtered_bed"
-data.group <- 
+data.version <- "20250117_Vi_CRC_filtered_bed_chr1"
+data.group <- "20250117_Vi_CRC_filtered_bed"
 output.version <- "20250202"
 
 # install.packages("/media/hieunguyen/GSHD_HN01/storage/PBMC/offline_pkgs/methylKit_1.30.0.tar.gz", type = "source", repos = NULL)
