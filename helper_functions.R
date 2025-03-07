@@ -27,13 +27,13 @@ readBismarkCoverage<-function( location,sample.id,assembly="unknown",treatment,
   result=list()
   for(i in 1:length(location)){
     df=fread.gzipped(location[[i]],data.table=FALSE)
-    
+    df=df %>% rowwise() %>%
+      mutate(name = sprintf("%s_%s_%s", V1, V2, V3))
+    df=df[!duplicated(df$name),]
+    df=subset(df, select = -c(name))
     # remove low coverage stuff
     df=df[ (df[,5]+df[,6]) >= min.cov ,]
-    
-    
-    
-    
+    df=as.data.frame(df)
     # make the object (arrange columns of df), put it in a list
     result[[i]]= new("methylRaw",data.frame(chr=df[,1],start=df[,2],end=df[,3],
                                             strand="*",coverage=(df[,5]+df[,6]),

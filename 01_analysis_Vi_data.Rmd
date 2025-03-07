@@ -60,11 +60,11 @@ data.version <- params$data.version
 output.version <- params$output.version
 data.group <- params$data.group
 
-# min.cov <- 10
+# min.cov <- 15
 # analysis.version <- "0.1"
-# data.version <- "20250117_Vi_CRC_filtered_bed_chr1"
-# data.group <- "20250117_Vi_CRC_filtered_bed"
-# output.version <- "20250202"
+# data.version <- "20250117_Vi_Lung_filtered_bed_chr3"
+# data.group <- "20250117_Vi_Lung_filtered_bed"
+# output.version <- "20241010"
 
 # install.packages("/media/hieunguyen/GSHD_HN01/storage/PBMC/offline_pkgs/methylKit_1.30.0.tar.gz", type = "source", repos = NULL)
 # install.packages(file.path(path.to.main.src, "BSgenome.Hsapiens.UCSC.hg19_1.4.3.tar.gz"), type = "source", repos = NULL)
@@ -308,14 +308,16 @@ if (file.exists(file.path(path.to.01.output, "finished_generating_DMR.csv")) == 
   }
   
   ##### diff meth cut-off not applied in diff regions
-  diff.regiondf <- diff.regiondf %>% rowwise() %>%
-    mutate(abs.meth.diff = abs(meth.diff)) %>%
-    mutate(sig = ifelse(qvalue <= qvalue.cutoff, "significant", "not.significant"))
+  if (nrow(diff.regiondf) != 0){
+    diff.regiondf <- diff.regiondf %>% rowwise() %>%
+      mutate(abs.meth.diff = abs(meth.diff)) %>%
+      mutate(sig = ifelse(qvalue <= qvalue.cutoff, "significant", "not.significant"))
+    diff.regiondf <- subset(diff.regiondf, sig == "significant")
+    diff.regiondf <- diff.regiondf %>% rowwise() %>% 
+      mutate(name = sprintf("%s.%s.%s", chr,  start, end))
+  }
+
   diff.regiondf.raw <- diff.regiondf
-  
-  diff.regiondf <- subset(diff.regiondf, sig == "significant")
-  diff.regiondf <- diff.regiondf %>% rowwise() %>% 
-    mutate(name = sprintf("%s.%s.%s", chr,  start, end))
   
   saveRDS(meth.chr, file.path(path.to.01.output, "meth_chr.rds"))
   saveRDS(tiles, file.path(path.to.01.output, "tiles.rds"))
@@ -333,7 +335,12 @@ if (file.exists(file.path(path.to.01.output, "finished_generating_DMR.csv")) == 
   diff.regiondf <- readRDS(file.path(path.to.01.output, "diff_regiondf.rds"))
 }
 
-diff.region.Granges <- as(diff.regiondf,"GRanges")
+if (nrow(diff.regiondf) != 0){
+  diff.region.Granges <- as(diff.regiondf,"GRanges")  
+} else {
+  diff.region.Granges <- data.frame()
+}
+
 ```
 
 ## List of all differential methylation regions {.tabset}
@@ -344,69 +351,147 @@ diff.regiondf %>% create_dt()
 
 ## List of all hypo differential methylation regions {.tabset}
 ```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis', fig.width=14, fig.height=10}
-diff.regiondf %>% subset(meth.diff <= 0) %>% create_dt()
+if (nrow(diff.regiondf) != 0){
+  diff.regiondf %>% subset(meth.diff <= 0) %>% create_dt()
+} else {
+  diff.regiondf %>% create_dt()
+}
+
 ```
 
 ## List of all hyper differential methylation regions {.tabset}
 ```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis', fig.width=14, fig.height=10}
-diff.regiondf %>% subset(meth.diff > 0) %>% create_dt()
+if (nrow(diff.regiondf) != 0){
+  diff.regiondf %>% subset(meth.diff > 0) %>% create_dt()
+} else {
+  diff.regiondf %>% create_dt()
+}
+
 ```
 
 ```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis', fig.width=14, fig.height=10}
-diff.region.Granges <- as(diff.regiondf,"GRanges")
+if (nrow(diff.regiondf) != 0){
+  diff.region.Granges <- as(diff.regiondf,"GRanges")
+} else {
+  diff.region.Granges <- data.frame()
+}
+
 ```
 
 
 # Heatmap
 
 ```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis', fig.width=14, fig.height=10}
+checkdf <- data.frame(meth)
+checkdf <- checkdf %>% rowwise() %>% mutate(name = sprintf("%s_%s_%s", chr, start, end))
+
+count.name <- table(checkdf$name) %>% sort()
+count.name[count.name != 1]
+```
+
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis', fig.width=14, fig.height=10}
 meth.cpg.matrix <- percMethylation(meth, rowids = TRUE)
-meth.region.matrix <- percMethylation(tiles$`1`, rowids = TRUE)
-for (chrom in names(tiles)){
+chrom.name <- str_split(data.version, "_")[[1]] %>% tail(1)
+chrom.name <- str_replace(chrom.name, "chr", "")
+meth.region.matrix <- percMethylation(tiles[[chrom.name]], rowids = TRUE)
+for (chrom in setdiff(names(tiles), chrom.name)){
   meth.region.matrix <- rbind(meth.region.matrix, percMethylation(tiles[[sprintf("%s", chrom)]], rowids = TRUE))
 }
 ```
 
 ```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis', fig.width=14, fig.height=10}
 diff.locidf <- diff.loci.Granges %>% as.data.frame() %>% rowwise() %>%
-  mutate(name = sprintf("%s.%s.%s", str_replace(seqnames, "chr", ""), start, end))
-diff.meth.cpg.matrix <- meth.cpg.matrix[diff.locidf$name,]
+  mutate(name = sprintf("%s.%s.%s", str_replace(seqnames, "chr", ""), start, end)) %>%
+  mutate(abs.meth.diff = abs(meth.diff)) %>% arrange(desc(abs.meth.diff))
+
+if (nrow(diff.locidf) == 1){
+  diff.meth.cpg.matrix <- meth.cpg.matrix[diff.locidf$name, ]
+  if (is.null(nrow(diff.meth.cpg.matrix)) == TRUE){
+    diff.meth.cpg.matrix <- as.matrix(diff.meth.cpg.matrix) %>% t()
+    row.names(diff.meth.cpg.matrix) <- diff.locidf$name  
+  }
+} else {
+  diff.meth.cpg.matrix <- meth.cpg.matrix[diff.locidf$name,]
+}
 
 diff.meth.region.matrix <- meth.region.matrix[diff.regiondf$name,]
 
 meta.data <- meta.data %>% arrange(desc(Label))
 
-diff.meth.cpg.matrix <- diff.meth.cpg.matrix[, meta.data$SampleID]
+# diff.meth.cpg.matrix <- diff.meth.cpg.matrix[, meta.data$SampleID]
 diff.meth.region.matrix <- diff.meth.region.matrix[, meta.data$SampleID]
+
+if (is.null(nrow(diff.meth.region.matrix)) == TRUE){
+  diff.meth.cpg.matrix <- as.matrix(diff.meth.cpg.matrix) %>% t()
+  row.names(diff.meth.cpg.matrix) <- diff.locidf$name    
+} 
+
 ```
 
 ## DML
 ```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis', fig.width=14, fig.height=10}
-diff.meth.cpg.matrix.scaled <- (diff.meth.cpg.matrix - rowMeans(diff.meth.cpg.matrix))/rowSds(diff.meth.cpg.matrix, useNames = TRUE)
+  diff.meth.cpg.matrix.scaled <- (diff.meth.cpg.matrix - rowMeans(diff.meth.cpg.matrix))/rowSds(diff.meth.cpg.matrix, useNames = TRUE)
 
-diff.meth.cpg.matrix.scaled.pivot <- diff.meth.cpg.matrix.scaled  %>% as.data.frame() %>% rownames_to_column("region") %>% pivot_longer(!region, values_to = "meth.density", names_to = "sample") %>%
-  rowwise() %>% 
-  mutate(Label = subset(meta.data, meta.data$SampleID == sample)$Label)
+if (nrow(diff.meth.cpg.matrix) == 0){
+  diff.meth.cpg.matrix.scaled.pivot <- data.frame()
+} else {
+  diff.meth.cpg.matrix.scaled.pivot <- diff.meth.cpg.matrix.scaled  %>% 
+    as.data.frame() %>% 
+    rownames_to_column("region") %>% 
+    pivot_longer(!region, values_to = "meth.density", names_to = "sample") %>%
+    rowwise() %>% 
+    mutate(Label = subset(meta.data, meta.data$SampleID == sample)$Label)
+}
+
 ```
 
 ```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis', fig.width=14, fig.height=10}
-pheatmap::pheatmap(diff.meth.cpg.matrix, cluster_rows = TRUE, cluster_cols = TRUE, scale = "row", show_rownames = FALSE)
+if (nrow(diff.meth.cpg.matrix) != 0){
+  if (nrow(diff.meth.cpg.matrix) >= 2){
+    cluster_rows <- TRUE
+    cluster_cols <- TRUE
+  } else {
+    cluster_cols <- FALSE
+    cluster_rows <- FALSE
+  }
+  if (nrow(diff.meth.cpg.matrix) >= 1000){
+    print("There are more than 1000 diff. Cpg, ONLY PLOTTING THE TOP 1000 on heatmap only")
+    top1000.cpg <- head(diff.locidf, 1000)$name
+    pheatmap::pheatmap(diff.meth.cpg.matrix[top1000.cpg, ], cluster_rows = cluster_rows, cluster_cols = cluster_cols, scale = "row", show_rownames = FALSE)  
+  } else {
+    pheatmap::pheatmap(diff.meth.cpg.matrix, cluster_rows = cluster_rows, cluster_cols = cluster_cols, scale = "row", show_rownames = FALSE)      
+  }
+} else {
+  ggplot() + ggtitle("No diff CpG found")
+}
+
 ```
 
 ## DMR
 ```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis', fig.width=14, fig.height=10}
-diff.meth.region.matrix.scaled <- (diff.meth.region.matrix - rowMeans(diff.meth.region.matrix))/rowSds(diff.meth.region.matrix, useNames = TRUE)
+if (nrow(diff.meth.region.matrix) != 0){
+  diff.meth.region.matrix.scaled <- (diff.meth.region.matrix - rowMeans(diff.meth.region.matrix))/rowSds(diff.meth.region.matrix, useNames = TRUE)
+  
+  diff.meth.region.matrix.scaled.pivot <- diff.meth.region.matrix.scaled  %>% 
+    as.data.frame() %>% 
+    rownames_to_column("region") %>% pivot_longer(!region, values_to = "meth.density", names_to = "sample") %>%
+    rowwise() %>% 
+    mutate(Label = subset(meta.data, meta.data$SampleID == sample)$Label)
+} else {
+  ggplot() + ggtitle("no diff DMR found")
+}
 
-diff.meth.region.matrix.scaled.pivot <- diff.meth.region.matrix.scaled  %>% 
-  as.data.frame() %>% 
-  rownames_to_column("region") %>% pivot_longer(!region, values_to = "meth.density", names_to = "sample") %>%
-  rowwise() %>% 
-  mutate(Label = subset(meta.data, meta.data$SampleID == sample)$Label)
 
 ```
 
 ```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis', fig.width=14, fig.height=10}
-pheatmap::pheatmap(diff.meth.region.matrix, cluster_rows = TRUE, cluster_cols = TRUE, scale = "row", show_rownames = FALSE)
+if (nrow(diff.meth.region.matrix) != 0){
+  pheatmap::pheatmap(diff.meth.region.matrix[rowSums(diff.meth.region.matrix[])>0,] , cluster_rows = TRUE, cluster_cols = TRUE, scale = "row", show_rownames = FALSE)
+} else {
+  ggplot() + ggtitle("no diff DMR found")
+}
+
 ```
 
 # Volcano plot
@@ -450,21 +535,30 @@ diff.loci.raw %>% ggplot(aes(x = meth.diff, y = -log10(qvalue), color = sig)) +
 The following volcano plot has a "jitter" of width = 0.5 and height = 0.5
 
 ```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis', fig.width=14, fig.height=10}
-diff.regiondf.raw %>% ggplot(aes(x = meth.diff, y = -log10(qvalue), color = sig)) + 
+if (nrow(diff.regiondf.raw) != 0){
+  diff.regiondf.raw %>% ggplot(aes(x = meth.diff, y = -log10(qvalue), color = sig)) + 
   geom_point(size = 2) +
   geom_jitter(width = 0.5, height = 0.5) + 
   geom_vline(xintercept = 0, linetype = "dotted") + 
   geom_vline(xintercept = methdiff.cutoff, linetype = "dashed") + 
   geom_vline(xintercept = -methdiff.cutoff, linetype = "dashed") +
   scale_color_manual(values = c("gray", "red"))
+} else {
+  ggplot() + ggtitle("no DMR found to plot")
+}
+
 ```
 
 ```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis', fig.width=14, fig.height=10}
-diff.locidf <- diff.locidf %>% rowwise() %>%
-  mutate(status = ifelse(meth.diff <= 0, "hypo", "hyper"))
+if (nrow(diff.locidf) != 0){
+  diff.locidf <- diff.locidf %>% rowwise() %>%
+    mutate(status = ifelse(meth.diff <= 0, "hypo", "hyper"))
+}
 
-diff.regiondf <- diff.regiondf  %>% rowwise() %>%
-  mutate(status = ifelse(meth.diff <= 0, "hypo", "hyper"))
+if (nrow(diff.regiondf) != 0){
+  diff.regiondf <- diff.regiondf  %>% rowwise() %>%
+    mutate(status = ifelse(meth.diff <= 0, "hypo", "hyper"))
+}
 
 #####----------------------------------------------------------------------#####
 ##### PREPARE PROMOTER REGIONS, NEW VERSION 2024.01.15
@@ -488,6 +582,10 @@ promoter.grange <- makeGRangesFromDataFrame(df = promoterdf,
 ```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis', fig.width=14, fig.height=10}
 annotated.dml <- annotate_with_promoter_database(diff.loci.Granges, promoter.grange)
 annotated.dml <- merge(diff.locidf, annotated.dml, by.x = "name", by.y = "name")
+```
+
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis', fig.width=14, fig.height=10}
 annotated.dml %>% create_dt()
 ```
 
@@ -504,19 +602,34 @@ annotated.dml %>% subset(name %in% subset(diff.locidf, diff.locidf$status == "hy
 # DMR Annotation
 ## All DMR
 ```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis', fig.width=14, fig.height=10}
-annotated.dmr <- annotate_with_promoter_database(diff.region.Granges, promoter.grange)
-annotated.dmr <- merge(diff.regiondf, annotated.dmr, by.x = "name", by.y = "name", all.x = TRUE)
-annotated.dmr %>% create_dt()
+if (nrow(diff.region.Granges) != 0){
+  annotated.dmr <- annotate_with_promoter_database(diff.region.Granges, promoter.grange)
+  annotated.dmr <- merge(diff.regiondf, annotated.dmr, by.x = "name", by.y = "name", all.x = TRUE)
+  annotated.dmr %>% create_dt()
+} else {
+  data.frame(status = c("no region to annotate")) %>% create_dt()
+}
+
 ```
 
 ## Hyper DMR only
 ```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis', fig.width=14, fig.height=10}
-annotated.dmr %>% subset(name %in% subset(diff.regiondf, diff.regiondf$status == "hyper")$name) %>% create_dt()
+if (nrow(diff.region.Granges) != 0){
+  annotated.dmr %>% subset(name %in% subset(diff.regiondf, diff.regiondf$status == "hyper")$name) %>% create_dt()  
+} else {
+  data.frame(status = c("no region to annotate")) %>% create_dt()
+}
+
 ```
 
 ## Hypo DMR only
 ```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis', fig.width=14, fig.height=10}
-annotated.dmr %>% subset(name %in% subset(diff.regiondf, diff.regiondf$status == "hypo")$name) %>% create_dt()
+if (nrow(diff.region.Granges) != 0){
+  annotated.dmr %>% subset(name %in% subset(diff.regiondf, diff.regiondf$status == "hypo")$name) %>% create_dt()
+} else {
+  data.frame(status = c("no region to annotate")) %>% create_dt()
+}
+
 ```
 
 ```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis', fig.width=14, fig.height=10}
@@ -543,32 +656,54 @@ if (file.exists(file.path(path.to.01.output, "annot.all.rds")) == FALSE){
   annot.all <- readRDS(file.path(path.to.01.output, "annot.all.rds"))
 }
 
+if (nrow(diff.locidf) != 0){
+  diff.locidf$seqnames <- unlist(lapply(diff.locidf$seqnames, function(x){
+    return(sprintf("chr%s", x))
+  }))
+  minoverlap = 1L
+  ignore.strand = TRUE
+  
+  diff.loci.grange <- makeGRangesFromDataFrame(diff.locidf, seqnames.field = "seqnames", start.field = "start", end.field = "end", keep.extra.columns = TRUE)
 
-diff.locidf$seqnames <- unlist(lapply(diff.locidf$seqnames, function(x){
+    intersections = GenomicRanges::findOverlaps(diff.loci.grange, annot.all, 
+    minoverlap = minoverlap, ignore.strand = ignore.strand)
+   if (length(intersections) != 0){
+     annot.dml <- annotate_regions(
+      regions = diff.loci.grange,
+      annotations = annot.all,
+      ignore.strand = TRUE,
+      quiet = FALSE)
+     annot.dmldf <- data.frame(annot.dml) 
+   } else {
+     annot.dmldf <- data.frame(status = c("no data to annotate"))
+   }
+} else {
+  annot.dmldf <- data.frame(status = c("no data to annotate"))
+}
+
+if (nrow(diff.regiondf) != 0){
+  diff.regiondf$chr <- unlist(lapply(diff.regiondf$chr, function(x){
   return(sprintf("chr%s", x))
-}))
+  }))
+  diff.region.grange <- makeGRangesFromDataFrame(diff.regiondf, seqnames.field = "chr", start.field = "start", end.field = "end", keep.extra.columns = TRUE)
+  
+  minoverlap = 1L
+  ignore.strand = TRUE
+  
+  intersections = GenomicRanges::findOverlaps(diff.region.grange, annot.all, 
+    minoverlap = minoverlap, ignore.strand = ignore.strand)
+  if (length(intersections) != 0){
+    annot.dmr <- annotate_regions(
+        regions = diff.region.grange,
+        annotations = annot.all,
+        ignore.strand = TRUE,
+        quiet = FALSE)
+    annot.dmrdf <- data.frame(annot.dmr)    
+  }
+} else {
+  annot.dmrdf <- data.frame(status = c("no data to annotate"))
+}
 
-diff.regiondf$chr <- unlist(lapply(diff.regiondf$chr, function(x){
-  return(sprintf("chr%s", x))
-}))
-
-diff.loci.grange <- makeGRangesFromDataFrame(diff.locidf, seqnames.field = "seqnames", start.field = "start", end.field = "end", keep.extra.columns = TRUE)
-diff.region.grange <- makeGRangesFromDataFrame(diff.regiondf, seqnames.field = "chr", start.field = "start", end.field = "end", keep.extra.columns = TRUE)
-
-annot.dml <- annotate_regions(
-    regions = diff.loci.grange,
-    annotations = annot.all,
-    ignore.strand = TRUE,
-    quiet = FALSE)
-
-annot.dmldf <- data.frame(annot.dml)
-
-annot.dmr <- annotate_regions(
-    regions = diff.region.grange,
-    annotations = annot.all,
-    ignore.strand = TRUE,
-    quiet = FALSE)
-annot.dmrdf <- data.frame(annot.dmr)
 ```
 
 ## DML

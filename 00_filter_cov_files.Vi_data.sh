@@ -13,10 +13,13 @@ data_version=$2
 mkdir -p ${outdir}/${data_group}/${data_version}/filtered_5reads_cov;
 mkdir -p ${outdir}/${data_group}/${data_version}/filtered_3reads_cov;
 mkdir -p ${outdir}/${data_group}/${data_version}/filtered_10reads_cov;
+mkdir -p ${outdir}/${data_group}/${data_version}/filtered_15reads_cov;
 files=$(ls ${outdir}/${data_group}/${data_version}/raw_cov/*.cov | xargs -n 1 basename);
 
 for file in $files;do filename=${file%.cov*} && \
 echo -e "working on sample " $filename "\n" && \
-awk -F'\t' '$5 + $6 >= 5' ${outdir}/${data_group}/${data_version}/raw_cov/${filename}.cov > ${outdir}/${data_group}/${data_version}/filtered_5reads_cov/${filename}.filtered.cov && \
-awk -F'\t' '$5 + $6 >= 3' ${outdir}/${data_group}/${data_version}/raw_cov/${filename}.cov > ${outdir}/${data_group}/${data_version}/filtered_3reads_cov/${filename}.filtered.cov && \
-awk -F'\t' '$5 + $6 >= 10' ${outdir}/${data_group}/${data_version}/raw_cov/${filename}.cov > ${outdir}/${data_group}/${data_version}/filtered_10reads_cov/${filename}.filtered.cov;done
+# awk -F'\t' '$5 + $6 >= 5' ${outdir}/${data_group}/${data_version}/raw_cov/${filename}.cov > ${outdir}/${data_group}/${data_version}/filtered_5reads_cov/${filename}.filtered.cov && \
+# awk -F'\t' '$5 + $6 >= 3' ${outdir}/${data_group}/${data_version}/raw_cov/${filename}.cov > ${outdir}/${data_group}/${data_version}/filtered_3reads_cov/${filename}.filtered.cov && \
+# awk -F'\t' '$5 + $6 >= 10' ${outdir}/${data_group}/${data_version}/raw_cov/${filename}.cov > ${outdir}/${data_group}/${data_version}/filtered_10reads_cov/${filename}.filtered.cov;
+awk -F'\t' '$5 + $6 >= 15' ${outdir}/${data_group}/${data_version}/raw_cov/${filename}.cov > ${outdir}/${data_group}/${data_version}/filtered_15reads_cov/${filename}.filtered.cov
+done

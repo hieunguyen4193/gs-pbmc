@@ -56,7 +56,9 @@ if (file.exists(file.path(path.to.save.html.output, save.html.name)) == FALSE){
                                     data.group = data.group,
                                     output.version = output.version))      
 } else {
+  print("--------------------------------------------------------------------")
   print(sprintf("File %s exists!", save.html.name))
+  print("--------------------------------------------------------------------")
 }
 
 

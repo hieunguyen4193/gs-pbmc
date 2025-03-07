@@ -359,7 +359,7 @@ diff.region.Granges <- as(diff.regiondf,"GRanges")
 ```{r echo=FALSE, warning=FALSE, message=FALSE, results='asis', fig.width=14, fig.height=10}
 meth.cpg.matrix <- percMethylation(meth, rowids = TRUE)
 meth.region.matrix <- percMethylation(tiles$`1`, rowids = TRUE)
-for (chrom in names(tiles)){
+for (chrom in setdiff(names(tiles), "1")){
   meth.region.matrix <- rbind(meth.region.matrix, percMethylation(tiles[[sprintf("%s", chrom)]], rowids = TRUE))
 }
 ```
